@@ -3,5 +3,4 @@ azure-cosmos
 logging
 scikit-learn
 nltk
-re
 openai
