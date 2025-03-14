@@ -149,13 +149,16 @@ def analyze_topics(chat_titles):
     if not chat_titles:
         return "", []
     
+    topics = []
+    
     titles = [item["title"] for item in chat_titles]
     text_content = " ".join(titles)
-    topics = extract_topics_from_text(text_content)
+    topics = (extract_topics_from_text(text_content).split(","))
     
     # Convert topics to a format suitable for visualization
     topic_data = []
     for topic in topics:
+        print(topic)
         if isinstance(topic, dict):
             topic_data.append({"topic": topic.get("name", ""), "score": topic.get("score", 0), "keywords": topic.get("keywords", [])})
         elif isinstance(topic, str):
@@ -182,7 +185,7 @@ if st.session_state.get("refresh_data", True):
 
 # Dashboard Page
 if st.session_state["current_page"] == "Dashboard":
-    st.markdown('<div class="main-header">DBminer Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">promptQuest Dashboard</div>', unsafe_allow_html=True)
     
     # Summary metrics
     col1, col2, col3 = st.columns(3)
@@ -304,6 +307,21 @@ elif st.session_state["current_page"] == "Chat Analysis":
 elif st.session_state["current_page"] == "Topic Explorer":
     st.markdown('<div class="main-header">Topic Explorer</div>', unsafe_allow_html=True)
     
+    if st.session_state["topic_data"] is not None and not st.session_state["topic_data"].empty:
+        df = st.session_state["topic_data"]
+        
+        # Create a bar chart of topics
+        fig = px.bar(
+            df.sort_values("score", ascending=False).head(30),
+            x="topic",
+            y="score",
+            color="score",
+            color_continuous_scale="Blues",
+            title="Top 30 Topics by Relevance Score"
+        )
+        fig.update_layout(xaxis_title="Topic", yaxis_title="Relevance Score")
+        st.plotly_chart(fig, use_container_width=True)
+
     if st.session_state["topics"]:
         # Topic selection
         topic_names = [t["topic"] for t in st.session_state["topics"]]
@@ -318,28 +336,28 @@ elif st.session_state["current_page"] == "Topic Explorer":
             # Display topic details
             col1, col2 = st.columns(2)
             
-            with col1:
-                st.markdown("#### Relevance Score")
-                st.markdown(f"<div class='metric-value'>{selected_topic_data['score']:.2f}</div>", unsafe_allow_html=True)
-                
-                if selected_topic_data.get("keywords"):
-                    st.markdown("#### Keywords")
-                    for keyword in selected_topic_data["keywords"]:
-                        st.markdown(f"- {keyword}")
+            # with col1:
+            st.markdown("#### Relevance Score")
+            st.markdown(f"<div class='metric-value'>{selected_topic_data['score']:.2f}</div>", unsafe_allow_html=True)
             
-            with col2:
+            if selected_topic_data.get("keywords"):
+                st.markdown("#### Keywords")
+                for keyword in selected_topic_data["keywords"]:
+                    st.markdown(f"- {keyword}")
+            
+            # with col2:
                 # Find chats related to this topic
-                related_chats = []
-                for chat in st.session_state["chat_titles"]:
-                    if selected_topic.lower() in chat["title"].lower():
-                        related_chats.append(chat)
-                
-                st.markdown("#### Related Chats")
-                if related_chats:
-                    for chat in related_chats[:10]:  # Show top 10
-                        st.markdown(f"- {chat['title']}")
-                else:
-                    st.info("No directly related chats found.")
+            related_chats = []
+            for chat in st.session_state["chat_titles"]:
+                if selected_topic.lower() in chat["title"].lower():
+                    related_chats.append(chat)
+            
+            st.markdown("#### Related Chats")
+            if related_chats:
+                for chat in related_chats[:10]:  # Show top 10
+                    st.markdown(f"- {chat['title']}")
+            else:
+                st.info("No directly related chats found.")
             
             # Topic trend over time (if timestamp data is available)
             st.markdown("#### Topic Trend")
@@ -364,4 +382,4 @@ st.markdown("promptQuest v1.0 | Data last refreshed: " + datetime.now().strftime
 st.sidebar.markdown("---")
 if st.sidebar.button("🔄 Refresh All Data"):
     st.session_state["refresh_data"] = True
-    st.experimental_rerun()
+    st.rerun()
