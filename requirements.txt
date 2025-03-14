@@ -4,3 +4,4 @@ logging
 scikit-learn
 nltk
 openai
+plotly
