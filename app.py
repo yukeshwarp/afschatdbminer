@@ -106,7 +106,7 @@ with st.sidebar:
         # We'll refresh data when filter changes
         st.session_state["refresh_data"] = True
     
-    limit = st.slider("Number of Records", min_value=50, max_value=1000, value=250, step=50)
+    limit = st.slider("Number of Records", min_value=50, max_value=200, value=150, step=50)
     
     if st.button("Refresh Data", key="refresh_button"):
         st.session_state["refresh_data"] = True
@@ -114,7 +114,7 @@ with st.sidebar:
 # Function to fetch data from Cosmos DB
 def fetch_chat_titles(limit=250, time_filter="All Time"):
     try:
-        query = "SELECT c.ChatTitle, c.TimeStamp FROM c"
+        query = "SELECT c.id, c.TimeStamp, c.AssistantName, c.ChatTitle, c.category FROM c"
         params = []
         
         # Add time filter if needed
@@ -139,7 +139,7 @@ def fetch_chat_titles(limit=250, time_filter="All Time"):
         container = database.get_container_client(CONTAINER_NAME)
         
         items = list(container.query_items(query=query, parameters=params, enable_cross_partition_query=True))
-        return [{"title": item["ChatTitle"], "timestamp": item.get("TimeStamp")} for item in items]
+        return [{"title": item["ChatTitle"], "timestamp": item.get("TimeStamp"), "assistant": item.get("AssistantName")} for item in items]
     except Exception as e:
         st.error(f"Error fetching data: {str(e)}")
         return []
@@ -204,36 +204,36 @@ if st.session_state["current_page"] == "Dashboard":
         st.markdown(f'<div class="metric-value">{st.session_state["time_filter"]}</div>', unsafe_allow_html=True)
         st.markdown('<div class="metric-label">Time Period</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Topic visualization
-    st.markdown('<div class="sub-header">Top Discussed Topics</div>', unsafe_allow_html=True)
-    
-    if st.session_state["topic_data"] is not None and not st.session_state["topic_data"].empty:
-        df = st.session_state["topic_data"]
-        
-        # Create a bar chart of topics
-        fig = px.bar(
-            df.sort_values("score", ascending=False).head(10),
-            x="topic",
-            y="score",
-            color="score",
-            color_continuous_scale="Blues",
-            title="Top 10 Topics by Relevance Score"
-        )
-        fig.update_layout(xaxis_title="Topic", yaxis_title="Relevance Score")
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Show recent chats
-        st.markdown('<div class="sub-header">Recent Chats</div>', unsafe_allow_html=True)
-        recent_chats = st.session_state["chat_titles"][:10]
-        
-        if recent_chats:
-            for i, chat in enumerate(recent_chats):
-                st.markdown(f"**{i+1}.** {chat['title']}")
+
+    # Extracting PromptAssistant data
+    prompt_assistant_data = {}
+    for chat in st.session_state["chat_titles"]:
+        assistant_name = chat.get("assistant", "Unknown")
+        if assistant_name in prompt_assistant_data:
+            prompt_assistant_data[assistant_name] += 1
         else:
-            st.info("No recent chats found.")
+            prompt_assistant_data[assistant_name] = 1
+    # Convert to DataFrame
+    assistant_df = pd.DataFrame(list(prompt_assistant_data.items()), columns=["Assistant", "Chat Count"])
+
+    # Topic visualization
+    st.markdown('<div class="sub-header">Prompt Assistant Analysis</div>', unsafe_allow_html=True)
+    
+    if not assistant_df.empty:
+        # Create a bar chart for PromptAssistant
+        fig = px.bar(
+            assistant_df.sort_values("Chat Count", ascending=False),
+            x="Assistant",
+            y="Chat Count",
+            color="Chat Count",
+            color_continuous_scale="Blues",
+            title="Top 10 Prompt Assistants by Chat Count"
+        )
+        fig.update_layout(xaxis_title="Prompt Assistant", yaxis_title="Chat Count")
+        st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No topic data available. Try refreshing the data.")
+        st.info("No data available for Prompt Assistant analysis.")
+
 
 # Chat Analysis Page
 elif st.session_state["current_page"] == "Chat Analysis":
@@ -243,7 +243,7 @@ elif st.session_state["current_page"] == "Chat Analysis":
     st.markdown('<div class="sub-header">Ask Questions About Your Data</div>', unsafe_allow_html=True)
     
     # Display chat history
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    # st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     for message in st.session_state["messages"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
