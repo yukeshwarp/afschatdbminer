@@ -4,7 +4,7 @@ import plotly.express as px
 from azure.cosmos import CosmosClient
 import logging
 from topic_modelling import extract_topics_from_text
-from config import *
+from cloud_config import *
 import time
 from datetime import datetime, timedelta
 
