@@ -1,7 +1,8 @@
 streamlit
 azure-cosmos
-logging
 scikit-learn
 nltk
 openai
 plotly
+wordcloud
+dash
