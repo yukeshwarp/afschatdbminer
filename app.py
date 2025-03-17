@@ -317,7 +317,7 @@ elif st.session_state["current_page"] == "Topic Explorer":
         wordcloud = WordCloud(
             background_color='#140012',
             width=512,
-            height=224, margin=0).generate(' '.join(df['topic'] for df in st.session_state["topics"]))
+            height=224, margin=True).generate(' '.join(df['topic'] for df in st.session_state["topics"]))
         
         # Display WordCloud in Streamlit
         fig, ax = plt.subplots()
