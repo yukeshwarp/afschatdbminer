@@ -280,10 +280,23 @@ elif st.session_state["current_page"] == "Chat Analysis":
                 response_stream = llmclient.chat.completions.create(
                     model="gpt-4o",
                     messages=[
-                        {"role": "system", "content": "You are a helpful assistant who answers questions based on data from the database."},
-                        {"role": "user", "content": f"Answer the user question based on the following data from the database:\n\nText Content: {text_content}\n\nHighlighted Topics: {topics}\n\nQuestion: {prompt}"}
+                        {"role": "system", "content": "You are an expert product analyst who analyses software products based on the user statistics from user database."},
+                        {"role": "user", "content": f"""
+                            Answer the user's prompt based on the following data from the database. 
+                            The database contains usage history of user questions and AI responses from an AI-assisted chatbot interface, specifically used for legal advice.
+                            
+                            User Database: {text_content}
+                            Highlighted Topics: {topics}
+                            
+                            ---
+                            Prompt: {prompt}
+                            
+                            ---
+                            Intelligently analyze the user's intent in the prompt and provide an insightful answer, utilizing relevant data and context from the database.
+                            """
+                        }
                     ],
-                    temperature=0.5,
+                    temperature=0.7,
                     stream=True,
                 )
             
