@@ -158,7 +158,7 @@ def analyze_topics(chat_titles):
     
     titles = [item["title"] for item in chat_titles]
     text_content = " ".join(titles)
-    topics = (extract_topics_from_text(text_content).split(","))
+    topics = (extract_topics_from_text(text_content))
     
     # Convert topics to a format suitable for visualization
     topic_data = []
