@@ -154,29 +154,15 @@ def analyze_topics(chat_titles):
     if not chat_titles:
         return "", []
     
-    topics = []
-    
     titles = [item["title"] for item in chat_titles]
     text_content = " ".join(titles)
     
     # Extract topics using the updated extract_topics_from_text function
     extracted_topics = extract_topics_from_text(text_content)
     
-    # Convert topics to a format suitable for visualization
-    topic_data = []
-    for topic in extracted_topics:
-        print(topic)
-        if isinstance(topic, dict):
-            topic_data.append({
-                "topic": topic.get("topic", ""),
-                "score": topic.get("score", 0),
-                "keywords": [{"term": keyword.get("term", ""), "weight": keyword.get("weight", 0)} for keyword in topic.get("keywords", [])]
-            })
-        elif isinstance(topic, str):
-            # If topics are just strings, create a simple structure
-            topic_data.append({"topic": topic, "score": 1, "keywords": []})
-    
-    return text_content, topic_data
+    # The function now returns a properly structured list of topics
+    return text_content, extracted_topics
+
 
 # Refresh data if needed
 if st.session_state.get("refresh_data", True):
