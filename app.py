@@ -320,9 +320,9 @@ elif st.session_state["current_page"] == "Topic Explorer":
     if st.session_state["topic_data"] is not None and not st.session_state["topic_data"].empty:
         
         wordcloud = WordCloud(
-            background_color='#140012',
-            width=512,
-            height=224, margin=True).generate(' '.join(df['topic'] for df in st.session_state["topics"]))
+        background_color='#140012',
+        width=512,
+        height=224, margin=True).generate(' '.join(topic["topic"] for topic in st.session_state["topics"]))
         
         # Display WordCloud in Streamlit
         fig, ax = plt.subplots()
