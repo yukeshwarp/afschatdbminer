@@ -6,13 +6,11 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import numpy as np
-from collections import Counter
-from cloud_config import llmclient
-from collections import defaultdict
 
+# Download required NLTK resources
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt_tab', quiet=True)
+nltk.download('punkt', quiet=True)  # Fixed: 'punkt' instead of 'punkt_tab'
 
 def preprocess_text(text):
     """Cleans text by removing special characters, stopwords, and lemmatizing."""
@@ -25,15 +23,13 @@ def preprocess_text(text):
     
     return " ".join(cleaned_words)
 
-from sklearn.decomposition import NMF
-
 def extract_topics_from_text(text, max_topics=5, max_top_words=10):
-    """Extract topics using NMF and LLM interpretation."""
+    """Extract topics using NMF and return structured topic data."""
     try:
         cleaned_text = preprocess_text(text)
         if len(cleaned_text.split()) < 10:
             logging.warning("Text too short for meaningful topic extraction")
-            return {"raw_topics": [], "interpreted_topics": "Text too short for meaningful analysis"}
+            return []
         
         vectorizer = TfidfVectorizer(
             stop_words="english",
@@ -43,6 +39,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             max_features=1000
         )
         
+        # Split text into sentences or chunks
         sentences = nltk.sent_tokenize(text)
         if len(sentences) < 3:
             sentences = [text[i:i+100] for i in range(0, len(text), 100) if len(text[i:i+100].strip()) > 0]
@@ -51,22 +48,21 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         
         if tfidf.shape[1] < 2:
             logging.warning("Not enough features extracted for NMF")
-            return {"raw_topics": [], "interpreted_topics": "Not enough features"}
+            return []
         
         n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
         
-        # Remove `alpha` and other unnecessary parameters
         nmf = NMF(
             n_components=n_topics,
             random_state=42,
             max_iter=500,
-            l1_ratio=0.5  # l1_ratio is a valid argument for regularization in NMF
+            l1_ratio=0.5
         )
         
         nmf_result = nmf.fit_transform(tfidf)
         feature_names = vectorizer.get_feature_names_out()
         
-        raw_topics = []
+        topics = []
         for topic_idx, topic in enumerate(nmf.components_):
             top_features_ind = topic.argsort()[:-max_top_words-1:-1]
             top_features = [feature_names[i] for i in top_features_ind]
@@ -74,35 +70,26 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             weights = topic[top_features_ind]
             weights = weights / weights.sum()
             
-            weighted_terms = [{"term": feature, "weight": weight} for feature, weight in zip(top_features, weights)]
+            weighted_terms = [{"term": feature, "weight": float(weight)} for feature, weight in zip(top_features, weights)]
             
-            raw_topics.append({
+            topics.append({
                 "topic": f"Topic {topic_idx + 1}",
-                "score": sum(weights),  # You can use sum of weights as score, or another metric
+                "score": float(sum(weights)),
                 "keywords": weighted_terms
             })
         
-        # Interpret topics using LLM
-        interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
-        
-        # Extract interpreted topics in a suitable format (concise label and description)
-        interpreted_topics_list = []
-        for interpretation in interpreted_topics:
-            interpreted_topics_list.append({
-                "label": interpretation.get("label", ""),
-                "description": interpretation.get("description", "")
-            })
-        
-        return {"raw_topics": raw_topics, "interpreted_topics": interpreted_topics_list}
+        return topics
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
-        return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
-
-
-
+        return []
 
 def interpret_topics_with_llm(text, raw_topics, llmclient):
+    """
+    Use LLM to interpret raw topics and return structured interpretations.
+    This function should be called separately from extract_topics_from_text
+    if LLM interpretation is needed.
+    """
     try:
         prompt = f"""
         I need you to analyze the following text and the extracted topic keywords to identify 
@@ -121,7 +108,6 @@ def interpret_topics_with_llm(text, raw_topics, llmclient):
         Format your response as a structured list of themes and descriptions.
         """
         
-        # Make sure to handle the response from the LLM correctly
         response = llmclient.chat.completions.create(
             model="gpt-4o",
             messages=[{
@@ -132,19 +118,14 @@ def interpret_topics_with_llm(text, raw_topics, llmclient):
             temperature=0.3
         )
 
-        # Assuming the LLM returns a string that needs to be structured
         interpreted_content = response.choices[0].message.content
-        
-        # Now process the content returned from LLM, which is expected to be text
-        # Here we parse the result into a list of dictionaries, if not already in a structured format
         interpreted_topics = parse_interpreted_topics(interpreted_content)
 
         return interpreted_topics
 
     except Exception as e:
         logging.error(f"Error interpreting topics with LLM: {e}")
-        return f"Error interpreting topics: {str(e)}"
-
+        return []
 
 def parse_interpreted_topics(interpreted_content):
     """
@@ -152,89 +133,48 @@ def parse_interpreted_topics(interpreted_content):
     """
     topics = []
     
-    # Assuming the LLM returns topics in some list format like:
-    # "1. Theme 1: Description\n2. Theme 2: Description"
     lines = interpreted_content.split("\n")
     current_topic = {}
     
     for line in lines:
-        if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3."):
-            if current_topic:  # Save the previous topic
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for numbered list items that likely indicate new topics
+        if re.match(r'^\d+\.', line):
+            if current_topic and "label" in current_topic:  # Save the previous topic
                 topics.append(current_topic)
             current_topic = {}
             
-        # Process each line into key-value format for themes
-        # For example, "Theme 1: Description" could be split into {"label": "Theme 1", "description": "Description"}
-        if ":" in line:
-            label, description = line.split(":", 1)
-            current_topic["label"] = label.strip()
-            current_topic["description"] = description.strip()
+            # Extract label and description if they're on the same line
+            parts = line.split(":", 1)
+            if len(parts) > 1:
+                label = parts[0].strip()
+                # Remove the number prefix
+                label = re.sub(r'^\d+\.\s*', '', label)
+                current_topic["label"] = label
+                current_topic["description"] = parts[1].strip()
+            else:
+                # Just store the label for now
+                label = line.strip()
+                label = re.sub(r'^\d+\.\s*', '', label)
+                current_topic["label"] = label
+        
+        # If we're in a topic and this line has a description
+        elif current_topic and ":" in line and "label" in current_topic and "description" not in current_topic:
+            parts = line.split(":", 1)
+            current_topic["description"] = parts[1].strip()
+        
+        # If this is a continuation of a description
+        elif current_topic and "label" in current_topic:
+            if "description" in current_topic:
+                current_topic["description"] += " " + line
+            else:
+                current_topic["description"] = line
 
-    if current_topic:  # Add the last topic if exists
+    # Add the last topic if it exists
+    if current_topic and "label" in current_topic:
         topics.append(current_topic)
     
     return topics
-
-
-def extract_topics_from_text(text, max_topics=5, max_top_words=10):
-    """Extract topics using NMF and LLM interpretation."""
-    try:
-        cleaned_text = preprocess_text(text)
-        if len(cleaned_text.split()) < 10:
-            logging.warning("Text too short for meaningful topic extraction")
-            return {"raw_topics": [], "interpreted_topics": "Text too short for meaningful analysis"}
-        
-        vectorizer = TfidfVectorizer(
-            stop_words="english",
-            max_df=0.85,
-            min_df=2,
-            ngram_range=(1, 2),
-            max_features=1000
-        )
-        
-        sentences = nltk.sent_tokenize(text)
-        if len(sentences) < 3:
-            sentences = [text[i:i+100] for i in range(0, len(text), 100) if len(text[i:i+100].strip()) > 0]
-        
-        tfidf = vectorizer.fit_transform(sentences)
-        
-        if tfidf.shape[1] < 2:
-            logging.warning("Not enough features extracted for NMF")
-            return {"raw_topics": [], "interpreted_topics": "Not enough features"}
-        
-        n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
-        
-        nmf = NMF(
-            n_components=n_topics,
-            random_state=42,
-            max_iter=500,
-            l1_ratio=0.5
-        )
-        
-        nmf_result = nmf.fit_transform(tfidf)
-        feature_names = vectorizer.get_feature_names_out()
-        
-        raw_topics = []
-        for topic_idx, topic in enumerate(nmf.components_):
-            top_features_ind = topic.argsort()[:-max_top_words-1:-1]
-            top_features = [feature_names[i] for i in top_features_ind]
-            
-            weights = topic[top_features_ind]
-            weights = weights / weights.sum()
-            
-            weighted_terms = [{"term": feature, "weight": weight} for feature, weight in zip(top_features, weights)]
-            
-            raw_topics.append({
-                "topic": f"Topic {topic_idx + 1}",
-                "score": sum(weights),  # You can use sum of weights as score, or another metric
-                "keywords": weighted_terms
-            })
-        
-        # Interpret topics using LLM
-        interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
-        
-        return {"raw_topics": raw_topics, "interpreted_topics": interpreted_topics}
-    
-    except Exception as e:
-        logging.error(f"Error extracting topics: {e}")
-        return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
