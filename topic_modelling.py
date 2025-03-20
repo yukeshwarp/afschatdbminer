@@ -47,7 +47,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         
         if tfidf.shape[1] < 2:
             logging.warning("Not enough features extracted for NMF")
-            return {"raw_topics": [], "interpreted_topics": "Not enough unique terms for topic modeling"}
+            return {"Error"}
         
         n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
         
