@@ -8,6 +8,7 @@ from nltk.stem import WordNetLemmatizer
 import numpy as np
 from collections import Counter
 from cloud_config import llmclient
+from collections import defaultdict
 
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
@@ -100,6 +101,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
 
 
 
+
 def interpret_topics_with_llm(text, raw_topics, llmclient):
     try:
         prompt = f"""
@@ -119,53 +121,120 @@ def interpret_topics_with_llm(text, raw_topics, llmclient):
         Format your response as a structured list of themes and descriptions.
         """
         
+        # Make sure to handle the response from the LLM correctly
         response = llmclient.chat.completions.create(
             model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a topic analysis expert who can identify meaningful themes and topics from text."},
-                {"role": "user", "content": prompt}
-            ],
+            messages=[{
+                "role": "system", "content": "You are a topic analysis expert who can identify meaningful themes and topics from text."
+            }, {
+                "role": "user", "content": prompt
+            }],
             temperature=0.3
         )
+
+        # Assuming the LLM returns a string that needs to be structured
+        interpreted_content = response.choices[0].message.content
         
-        return response.choices[0].message.content
-    
+        # Now process the content returned from LLM, which is expected to be text
+        # Here we parse the result into a list of dictionaries, if not already in a structured format
+        interpreted_topics = parse_interpreted_topics(interpreted_content)
+
+        return interpreted_topics
+
     except Exception as e:
         logging.error(f"Error interpreting topics with LLM: {e}")
         return f"Error interpreting topics: {str(e)}"
 
-def analyze_database_content(text_content, llmclient, user_prompt=None):
+
+def parse_interpreted_topics(interpreted_content):
     """
-    Analyze database content and answer user questions based on topics.
+    Converts raw LLM response into structured topic data (list of dicts).
+    """
+    topics = []
     
-    Args:
-        text_content (str): The text content from the database
-        llmclient: The LLM client
-        user_prompt (str, optional): User question to answer
+    # Assuming the LLM returns topics in some list format like:
+    # "1. Theme 1: Description\n2. Theme 2: Description"
+    lines = interpreted_content.split("\n")
+    current_topic = {}
+    
+    for line in lines:
+        if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3."):
+            if current_topic:  # Save the previous topic
+                topics.append(current_topic)
+            current_topic = {}
+            
+        # Process each line into key-value format for themes
+        # For example, "Theme 1: Description" could be split into {"label": "Theme 1", "description": "Description"}
+        if ":" in line:
+            label, description = line.split(":", 1)
+            current_topic["label"] = label.strip()
+            current_topic["description"] = description.strip()
+
+    if current_topic:  # Add the last topic if exists
+        topics.append(current_topic)
+    
+    return topics
+
+
+def extract_topics_from_text(text, max_topics=5, max_top_words=10):
+    """Extract topics using NMF and LLM interpretation."""
+    try:
+        cleaned_text = preprocess_text(text)
+        if len(cleaned_text.split()) < 10:
+            logging.warning("Text too short for meaningful topic extraction")
+            return {"raw_topics": [], "interpreted_topics": "Text too short for meaningful analysis"}
         
-    Returns:
-        dict: Analysis results with topics and optional answer to user question
-    """
-    topic_results = extract_topics_from_text(text_content, llmclient)
+        vectorizer = TfidfVectorizer(
+            stop_words="english",
+            max_df=0.85,
+            min_df=2,
+            ngram_range=(1, 2),
+            max_features=1000
+        )
+        
+        sentences = nltk.sent_tokenize(text)
+        if len(sentences) < 3:
+            sentences = [text[i:i+100] for i in range(0, len(text), 100) if len(text[i:i+100].strip()) > 0]
+        
+        tfidf = vectorizer.fit_transform(sentences)
+        
+        if tfidf.shape[1] < 2:
+            logging.warning("Not enough features extracted for NMF")
+            return {"raw_topics": [], "interpreted_topics": "Not enough features"}
+        
+        n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
+        
+        nmf = NMF(
+            n_components=n_topics,
+            random_state=42,
+            max_iter=500,
+            l1_ratio=0.5
+        )
+        
+        nmf_result = nmf.fit_transform(tfidf)
+        feature_names = vectorizer.get_feature_names_out()
+        
+        raw_topics = []
+        for topic_idx, topic in enumerate(nmf.components_):
+            top_features_ind = topic.argsort()[:-max_top_words-1:-1]
+            top_features = [feature_names[i] for i in top_features_ind]
+            
+            weights = topic[top_features_ind]
+            weights = weights / weights.sum()
+            
+            weighted_terms = [{"term": feature, "weight": weight} for feature, weight in zip(top_features, weights)]
+            
+            raw_topics.append({
+                "topic": f"Topic {topic_idx + 1}",
+                "score": sum(weights),  # You can use sum of weights as score, or another metric
+                "keywords": weighted_terms
+            })
+        
+        # Interpret topics using LLM
+        interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
+        
+        return {"raw_topics": raw_topics, "interpreted_topics": interpreted_topics}
     
-    result = {
-        "raw_topics": topic_results["raw_topics"],
-        "thematic_analysis": topic_results["interpreted_topics"]
-    }
-    
-    if user_prompt:
-        try:
-            response = llmclient.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant who answers questions based on data from the database."},
-                    {"role": "user", "content": f"Answer the user question based on the following data from the database:\n\nText Content: {text_content[:1000]}... (truncated)\n\nHighlighted Topics: {topic_results['interpreted_topics']}\n\nQuestion: {user_prompt}"}
-                ],
-                temperature=0.5
-            )
-            result["answer"] = response.choices[0].message.content
-        except Exception as e:
-            logging.error(f"Error answering user question: {e}")
-            result["answer"] = f"Error answering question: {str(e)}"
-    
-    return result
+    except Exception as e:
+        logging.error(f"Error extracting topics: {e}")
+        return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
