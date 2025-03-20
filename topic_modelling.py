@@ -25,6 +25,7 @@ def preprocess_text(text):
     return " ".join(cleaned_words)
 
 def extract_topics_from_text(text, max_topics=5, max_top_words=10):
+    """Extract topics using NMF and LLM interpretation."""
     try:
         cleaned_text = preprocess_text(text)
         if len(cleaned_text.split()) < 10:
@@ -47,7 +48,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         
         if tfidf.shape[1] < 2:
             logging.warning("Not enough features extracted for NMF")
-            return {"Error"}
+            return {"raw_topics": [], "interpreted_topics": "Not enough features"}
         
         n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
         
@@ -70,19 +71,27 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             weights = topic[top_features_ind]
             weights = weights / weights.sum()
             
-            weighted_terms = [f"{feature} ({weight:.2f})" for feature, weight in zip(top_features, weights)]
-            raw_topics.append(", ".join(weighted_terms))
+            weighted_terms = [{"term": feature, "weight": weight} for feature, weight in zip(top_features, weights)]
+            
+            raw_topics.append({
+                "topic": f"Topic {topic_idx + 1}",
+                "score": sum(weights),  # You can use sum of weights as score, or another metric
+                "keywords": weighted_terms
+            })
         
+        # Interpret topics using LLM
         interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
-        return raw_topics+interpreted_topics
-        # return {
-        #     "raw_topics": raw_topics,
-        #     "interpreted_topics": interpreted_topics
-        # }
+        
+        # Merge interpreted topics with raw topics for a more detailed result
+        for idx, topic in enumerate(raw_topics):
+            topic["interpreted_description"] = interpreted_topics[idx] if idx < len(interpreted_topics) else "No description"
+        
+        return raw_topics
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
         return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
+
 
 def interpret_topics_with_llm(text, raw_topics, llmclient):
     try:
