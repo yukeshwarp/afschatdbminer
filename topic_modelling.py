@@ -24,6 +24,8 @@ def preprocess_text(text):
     
     return " ".join(cleaned_words)
 
+from sklearn.decomposition import NMF
+
 def extract_topics_from_text(text, max_topics=5, max_top_words=10):
     """Extract topics using NMF and LLM interpretation."""
     try:
@@ -52,12 +54,12 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         
         n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
         
+        # Remove `alpha` and other unnecessary parameters
         nmf = NMF(
             n_components=n_topics,
             random_state=42,
             max_iter=500,
-            alpha=0.1,
-            l1_ratio=0.5
+            l1_ratio=0.5  # l1_ratio is a valid argument for regularization in NMF
         )
         
         nmf_result = nmf.fit_transform(tfidf)
@@ -82,15 +84,20 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         # Interpret topics using LLM
         interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
         
-        # Merge interpreted topics with raw topics for a more detailed result
-        for idx, topic in enumerate(raw_topics):
-            topic["interpreted_description"] = interpreted_topics[idx] if idx < len(interpreted_topics) else "No description"
+        # Extract interpreted topics in a suitable format (concise label and description)
+        interpreted_topics_list = []
+        for interpretation in interpreted_topics:
+            interpreted_topics_list.append({
+                "label": interpretation.get("label", ""),
+                "description": interpretation.get("description", "")
+            })
         
-        return raw_topics
+        return {"raw_topics": raw_topics, "interpreted_topics": interpreted_topics_list}
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
         return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
+
 
 
 def interpret_topics_with_llm(text, raw_topics, llmclient):
