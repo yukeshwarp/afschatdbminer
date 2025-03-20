@@ -74,11 +74,11 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             raw_topics.append(", ".join(weighted_terms))
         
         interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
-        
-        return {
-            "raw_topics": raw_topics,
-            "interpreted_topics": interpreted_topics
-        }
+        return raw_topics+interpreted_topics
+        # return {
+        #     "raw_topics": raw_topics,
+        #     "interpreted_topics": interpreted_topics
+        # }
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
