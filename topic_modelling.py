@@ -6,12 +6,11 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import numpy as np
-from collections import Counter
-from cloud_config import llmclient
 
+# Download required NLTK resources
 nltk.download('stopwords', quiet=True)
 nltk.download('wordnet', quiet=True)
-nltk.download('punkt', quiet=True)
+nltk.download('punkt', quiet=True)  # Fixed: 'punkt' instead of 'punkt_tab'
 
 def preprocess_text(text):
     """Cleans text by removing special characters, stopwords, and lemmatizing."""
@@ -79,19 +78,13 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
                 "keywords": weighted_terms
             })
         
-        
-        topic_analysis = ""
-        for topicss in topics:
-            for topic in topicss['keywords']:
-                topic_analysis += f"{topic['term']} with weight {topic['weight']}\n "
-        
-        return interpret_topics_with_llm(Text, topic_analysis)
+        return topics
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
         return []
 
-def interpret_topics_with_llm(text, raw_topics):
+def interpret_topics_with_llm(text, raw_topics, llmclient):
     """
     Use LLM to interpret raw topics and return structured interpretations.
     This function should be called separately from extract_topics_from_text
@@ -108,11 +101,11 @@ def interpret_topics_with_llm(text, raw_topics):
         {raw_topics}
         
         Please respond with:
-        1. Main themes you identify from the text and keywords
+        1. A list of 3-5 main themes you identify from the text and keywords
         2. For each theme, provide a concise label and a 1-2 sentence description
-        3. Any notable subtopics or related concepts
+        3. List any notable subtopics or related concepts
         
-        Return the identifies topics by separating with commas. Return only the topics strictly with no additional texts.
+        Format your response as a structured list of themes and descriptions.
         """
         
         response = llmclient.chat.completions.create(
@@ -126,8 +119,9 @@ def interpret_topics_with_llm(text, raw_topics):
         )
 
         interpreted_content = response.choices[0].message.content
+        interpreted_topics = parse_interpreted_topics(interpreted_content)
 
-        return interpreted_content
+        return interpreted_topics
 
     except Exception as e:
         logging.error(f"Error interpreting topics with LLM: {e}")
@@ -184,4 +178,3 @@ def parse_interpreted_topics(interpreted_content):
         topics.append(current_topic)
     
     return topics
-
