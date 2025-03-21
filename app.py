@@ -154,15 +154,23 @@ def analyze_topics(chat_titles):
     if not chat_titles:
         return "", []
     
+    topics = []
+    
     titles = [item["title"] for item in chat_titles]
     text_content = " ".join(titles)
+    topics = (extract_topics_from_text(text_content))
     
-    # Extract topics using the extract_topics_from_text function
-    extracted_topics = extract_topics_from_text(text_content)
+    # Convert topics to a format suitable for visualization
+    topic_data = []
+    for topic in topics:
+        print(topic)
+        if isinstance(topic, dict):
+            topic_data.append({"topic": topic.get("name", ""), "score": topic.get("score", 0), "keywords": topic.get("keywords", [])})
+        elif isinstance(topic, str):
+            # If topics are just strings, create a simple structure
+            topic_data.append({"topic": topic, "score": 1, "keywords": []})
     
-    # Return the text content and the extracted topics directly
-    return text_content, extracted_topics
-
+    return text_content, topic_data
 
 # Refresh data if needed
 if st.session_state.get("refresh_data", True):
@@ -173,24 +181,10 @@ if st.session_state.get("refresh_data", True):
             st.session_state["text_content"], topic_data = analyze_topics(st.session_state["chat_titles"])
             st.session_state["topics"] = topic_data
             
-            # Create dataframe for visualization - THIS IS WHERE THE ERROR LIKELY OCCURS
+            # Create dataframe for visualization
             if topic_data:
-                # Don't try to create a DataFrame directly from the topic_data
-                # Instead, extract the relevant fields first
-                topics_for_df = []
-                for topic in topic_data:
-                    topics_for_df.append({
-                        "topic": topic["topic"],
-                        "score": topic["score"]
-                    })
-                
-                if topics_for_df:
-                    df = pd.DataFrame(topics_for_df)
-                    st.session_state["topic_data"] = df
-                else:
-                    st.session_state["topic_data"] = pd.DataFrame()
-            else:
-                st.session_state["topic_data"] = pd.DataFrame()
+                df = pd.DataFrame(topic_data)
+                st.session_state["topic_data"] = df
         
         st.session_state["refresh_data"] = False
 
@@ -331,27 +325,19 @@ elif st.session_state["current_page"] == "Chat Analysis":
 elif st.session_state["current_page"] == "Topic Explorer":
     st.markdown('<div class="main-header">Topic Explorer</div>', unsafe_allow_html=True)
     
-    if st.session_state["topics"]:
-        # Create a string of all topic names for the WordCloud
-        topic_text = ' '.join(topic["topic"] for topic in st.session_state["topics"])
+    if st.session_state["topic_data"] is not None and not st.session_state["topic_data"].empty:
         
-        # Only generate WordCloud if there's text
-        if topic_text:
-            wordcloud = WordCloud(
-                background_color='#140012',
-                width=512,
-                height=224, 
-                margin=True
-            ).generate(topic_text)
-            
-            # Display WordCloud in Streamlit
-            fig, ax = plt.subplots()
-            ax.imshow(wordcloud, interpolation='bilinear')
-            ax.axis('off')  # Hide axes
-            
-            st.pyplot(fig)
-        else:
-            st.info("Not enough topic data to generate a word cloud.")
+        wordcloud = WordCloud(
+            background_color='#140012',
+            width=512,
+            height=224, margin=True).generate(' '.join(df['topic'] for df in st.session_state["topics"]))
+        
+        # Display WordCloud in Streamlit
+        fig, ax = plt.subplots()
+        ax.imshow(wordcloud, interpolation='bilinear')
+        ax.axis('off')  # Hide axes
+        
+        st.pyplot(fig)
 
     if st.session_state["topics"]:
         # Topic selection
