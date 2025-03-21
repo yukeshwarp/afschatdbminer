@@ -25,11 +25,12 @@ def preprocess_text(text):
     return " ".join(cleaned_words)
 
 def extract_topics_from_text(text, max_topics=5, max_top_words=10):
+    """Extract topics using NMF and return structured topic data."""
     try:
         cleaned_text = preprocess_text(text)
         if len(cleaned_text.split()) < 10:
             logging.warning("Text too short for meaningful topic extraction")
-            return {"raw_topics": [], "interpreted_topics": "Text too short for meaningful analysis"}
+            return []
         
         vectorizer = TfidfVectorizer(
             stop_words="english",
@@ -39,6 +40,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             max_features=1000
         )
         
+        # Split text into sentences or chunks
         sentences = nltk.sent_tokenize(text)
         if len(sentences) < 3:
             sentences = [text[i:i+100] for i in range(0, len(text), 100) if len(text[i:i+100].strip()) > 0]
@@ -47,7 +49,7 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
         
         if tfidf.shape[1] < 2:
             logging.warning("Not enough features extracted for NMF")
-            return {"raw_topics": [], "interpreted_topics": "Not enough unique terms for topic modeling"}
+            return []
         
         n_topics = min(max_topics, min(5, tfidf.shape[1]-1))
         
@@ -55,14 +57,13 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             n_components=n_topics,
             random_state=42,
             max_iter=500,
-            alpha=0.1,
             l1_ratio=0.5
         )
         
         nmf_result = nmf.fit_transform(tfidf)
         feature_names = vectorizer.get_feature_names_out()
         
-        raw_topics = []
+        topics = []
         for topic_idx, topic in enumerate(nmf.components_):
             top_features_ind = topic.argsort()[:-max_top_words-1:-1]
             top_features = [feature_names[i] for i in top_features_ind]
@@ -70,21 +71,32 @@ def extract_topics_from_text(text, max_topics=5, max_top_words=10):
             weights = topic[top_features_ind]
             weights = weights / weights.sum()
             
-            weighted_terms = [f"{feature} ({weight:.2f})" for feature, weight in zip(top_features, weights)]
-            raw_topics.append(", ".join(weighted_terms))
+            weighted_terms = [{"term": feature, "weight": float(weight)} for feature, weight in zip(top_features, weights)]
+            
+            topics.append({
+                "topic": f"Topic {topic_idx + 1}",
+                "score": float(sum(weights)),
+                "keywords": weighted_terms
+            })
         
-        interpreted_topics = interpret_topics_with_llm(text, raw_topics, llmclient)
         
-        return {
-            "raw_topics": raw_topics,
-            "interpreted_topics": interpreted_topics
-        }
+        topic_analysis = ""
+        for topicss in topics:
+            for topic in topicss['keywords']:
+                topic_analysis += f"{topic['term']} with weight {topic['weight']}\n "
+        
+        return interpret_topics_with_llm(Text, topic_analysis)
     
     except Exception as e:
         logging.error(f"Error extracting topics: {e}")
-        return {"raw_topics": [], "interpreted_topics": f"Error extracting topics: {str(e)}"}
+        return []
 
-def interpret_topics_with_llm(text, raw_topics, llmclient):
+def interpret_topics_with_llm(text, raw_topics):
+    """
+    Use LLM to interpret raw topics and return structured interpretations.
+    This function should be called separately from extract_topics_from_text
+    if LLM interpretation is needed.
+    """
     try:
         prompt = f"""
         I need you to analyze the following text and the extracted topic keywords to identify 
@@ -96,60 +108,80 @@ def interpret_topics_with_llm(text, raw_topics, llmclient):
         {raw_topics}
         
         Please respond with:
-        1. A list of 3-5 main themes you identify from the text and keywords
+        1. Main themes you identify from the text and keywords
         2. For each theme, provide a concise label and a 1-2 sentence description
-        3. List any notable subtopics or related concepts
+        3. Any notable subtopics or related concepts
         
-        Format your response as a structured list of themes and descriptions.
+        Return the identifies topics by separating with commas. Return only the topics strictly with no additional texts.
         """
         
         response = llmclient.chat.completions.create(
             model="gpt-4o",
-            messages=[
-                {"role": "system", "content": "You are a topic analysis expert who can identify meaningful themes and topics from text."},
-                {"role": "user", "content": prompt}
-            ],
+            messages=[{
+                "role": "system", "content": "You are a topic analysis expert who can identify meaningful themes and topics from text."
+            }, {
+                "role": "user", "content": prompt
+            }],
             temperature=0.3
         )
-        
-        return response.choices[0].message.content
-    
+
+        interpreted_content = response.choices[0].message.content
+
+        return interpreted_content
+
     except Exception as e:
         logging.error(f"Error interpreting topics with LLM: {e}")
-        return f"Error interpreting topics: {str(e)}"
+        return []
 
-def analyze_database_content(text_content, llmclient, user_prompt=None):
+def parse_interpreted_topics(interpreted_content):
     """
-    Analyze database content and answer user questions based on topics.
+    Converts raw LLM response into structured topic data (list of dicts).
+    """
+    topics = []
     
-    Args:
-        text_content (str): The text content from the database
-        llmclient: The LLM client
-        user_prompt (str, optional): User question to answer
+    lines = interpreted_content.split("\n")
+    current_topic = {}
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check for numbered list items that likely indicate new topics
+        if re.match(r'^\d+\.', line):
+            if current_topic and "label" in current_topic:  # Save the previous topic
+                topics.append(current_topic)
+            current_topic = {}
+            
+            # Extract label and description if they're on the same line
+            parts = line.split(":", 1)
+            if len(parts) > 1:
+                label = parts[0].strip()
+                # Remove the number prefix
+                label = re.sub(r'^\d+\.\s*', '', label)
+                current_topic["label"] = label
+                current_topic["description"] = parts[1].strip()
+            else:
+                # Just store the label for now
+                label = line.strip()
+                label = re.sub(r'^\d+\.\s*', '', label)
+                current_topic["label"] = label
         
-    Returns:
-        dict: Analysis results with topics and optional answer to user question
-    """
-    topic_results = extract_topics_from_text(text_content, llmclient)
+        # If we're in a topic and this line has a description
+        elif current_topic and ":" in line and "label" in current_topic and "description" not in current_topic:
+            parts = line.split(":", 1)
+            current_topic["description"] = parts[1].strip()
+        
+        # If this is a continuation of a description
+        elif current_topic and "label" in current_topic:
+            if "description" in current_topic:
+                current_topic["description"] += " " + line
+            else:
+                current_topic["description"] = line
+
+    # Add the last topic if it exists
+    if current_topic and "label" in current_topic:
+        topics.append(current_topic)
     
-    result = {
-        "raw_topics": topic_results["raw_topics"],
-        "thematic_analysis": topic_results["interpreted_topics"]
-    }
-    
-    if user_prompt:
-        try:
-            response = llmclient.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant who answers questions based on data from the database."},
-                    {"role": "user", "content": f"Answer the user question based on the following data from the database:\n\nText Content: {text_content[:1000]}... (truncated)\n\nHighlighted Topics: {topic_results['interpreted_topics']}\n\nQuestion: {user_prompt}"}
-                ],
-                temperature=0.5
-            )
-            result["answer"] = response.choices[0].message.content
-        except Exception as e:
-            logging.error(f"Error answering user question: {e}")
-            result["answer"] = f"Error answering question: {str(e)}"
-    
-    return result
+    return topics
+
