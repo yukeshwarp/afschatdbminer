@@ -161,7 +161,7 @@ def analyze_topics(chat_titles):
     topics = (extract_topics_from_text(text_content))
     
     # Convert topics to a format suitable for visualization
-    topic_data = topics.split(",")
+    topic_data = str(topics).split(",")
     # for topic in topics:
     #     print(topic)
     #     if isinstance(topic, dict):
