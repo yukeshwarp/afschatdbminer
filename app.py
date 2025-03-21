@@ -161,14 +161,14 @@ def analyze_topics(chat_titles):
     topics = (extract_topics_from_text(text_content))
     
     # Convert topics to a format suitable for visualization
-    topic_data = str(topics).split(",")
-    # for topic in topics:
-    #     print(topic)
-    #     if isinstance(topic, dict):
-    #         topic_data.append({"topic": topic.get("name", ""), "score": topic.get("score", 0), "keywords": topic.get("keywords", [])})
-    #     elif isinstance(topic, str):
-    #         # If topics are just strings, create a simple structure
-    #         topic_data.append({"topic": topic, "score": 1, "keywords": []})
+    topic_data = []
+    for topic in topics:
+        print(topic)
+        if isinstance(topic, dict):
+            topic_data.append({"topic": topic.get("name", ""), "score": topic.get("score", 0), "keywords": topic.get("keywords", [])})
+        elif isinstance(topic, str):
+            # If topics are just strings, create a simple structure
+            topic_data.append({"topic": topic, "score": 1, "keywords": []})
     
     return text_content, topic_data
 
